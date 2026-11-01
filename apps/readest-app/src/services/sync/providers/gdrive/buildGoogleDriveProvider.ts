@@ -52,7 +52,9 @@ export const getGoogleWebClientId = (): string | undefined =>
 const resolveFetch = (): FetchFn =>
   (isTauriAppPlatform() ? tauriFetch : globalThis.fetch) as unknown as FetchFn;
 
-export const buildGoogleDriveProvider = async (): Promise<FileSyncProvider | null> => {
+export const buildGoogleDriveProvider = async (
+  rootPath?: string,
+): Promise<FileSyncProvider | null> => {
   // Web: token from the full-page redirect flow, kept in sessionStorage, read by
   // WebDriveAuth. Buffered I/O (createGoogleDriveProvider omits the Tauri-only
   // streaming methods off-Tauri); the Drive REST API is CORS-enabled so plain
@@ -62,7 +64,7 @@ export const buildGoogleDriveProvider = async (): Promise<FileSyncProvider | nul
     // Bind to the global so `this.fetchFn(...)` inside the provider doesn't call
     // window.fetch with the wrong receiver ("Illegal invocation").
     const fetchFn = globalThis.fetch.bind(globalThis) as unknown as FetchFn;
-    return createGoogleDriveProvider(new WebDriveAuth(fetchFn), fetchFn);
+    return createGoogleDriveProvider(new WebDriveAuth(fetchFn), fetchFn, { rootPath });
   }
 
   const clientId = getGoogleClientId();
@@ -75,5 +77,5 @@ export const buildGoogleDriveProvider = async (): Promise<FileSyncProvider | nul
 
   const fetchFn = resolveFetch();
   const auth = createGoogleDriveAuth({ clientId, fetchFn, persistence });
-  return createGoogleDriveProvider(auth, fetchFn);
+  return createGoogleDriveProvider(auth, fetchFn, { rootPath });
 };

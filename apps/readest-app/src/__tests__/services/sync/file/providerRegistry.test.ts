@@ -95,6 +95,26 @@ describe('createFileSyncProvider', () => {
     expect(buildGoogleDriveProvider).toHaveBeenCalledTimes(1);
   });
 
+  test('passes the Drive folder to buildGoogleDriveProvider and rebuilds when it changes', async () => {
+    vi.mocked(buildGoogleDriveProvider).mockImplementation(
+      async (rootPath?: string) => ({ rootPath: rootPath ?? '/' }) as unknown as FileSyncProvider,
+    );
+    const first = await createFileSyncProvider('gdrive', {
+      googleDrive: { enabled: true, rootPath: '/Books' },
+    });
+    expect(buildGoogleDriveProvider).toHaveBeenLastCalledWith('/Books');
+    expect(first?.rootPath).toBe('/Books');
+    const second = await createFileSyncProvider('gdrive', {
+      googleDrive: { enabled: true, rootPath: '/Books' },
+    });
+    expect(second).toBe(first);
+    const third = await createFileSyncProvider('gdrive', {
+      googleDrive: { enabled: true, rootPath: '/Library' },
+    });
+    expect(third).not.toBe(first);
+    expect(buildGoogleDriveProvider).toHaveBeenLastCalledWith('/Library');
+  });
+
   test('delegates onedrive to buildOneDriveProvider and does not throw', async () => {
     vi.mocked(buildOneDriveProvider).mockResolvedValueOnce(null);
     const result = await createFileSyncProvider('onedrive', { onedrive: { enabled: true } });

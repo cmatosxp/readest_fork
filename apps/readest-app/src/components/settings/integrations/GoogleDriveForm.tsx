@@ -10,9 +10,54 @@ import {
   runGoogleDriveDisconnect,
 } from '@/services/sync/providers/gdrive/googleDriveConnect';
 import { hasValidWebDriveToken } from '@/services/sync/providers/gdrive/auth/webTokenStore';
-import { Tips } from '../primitives';
+import { normalizeRoot } from '@/services/sync/file/layout';
+import { SectionTitle, Tips } from '../primitives';
 import FileSyncForm from './FileSyncForm';
 import { persistCloudProviderEnabled } from './cloudSync';
+
+/**
+ * The Drive folder the `Readest/` tree is synced under, committed on blur.
+ * Under `drive.file` the app cannot see folders it did not create, so a name
+ * that already exists in the user's Drive yields a second, app-owned folder.
+ */
+const DriveFolderField: React.FC<{
+  value: string | undefined;
+  onCommit: (rootPath: string) => Promise<void>;
+}> = ({ value, onCommit }) => {
+  const _ = useTranslation();
+  const [draft, setDraft] = useState(value || '/');
+  const commit = async () => {
+    const next = normalizeRoot(draft);
+    setDraft(next);
+    if (next !== normalizeRoot(value)) await onCommit(next);
+  };
+  return (
+    <div className='space-y-1.5'>
+      <SectionTitle as='label' htmlFor='gdrive-root' className='block'>
+        {_('Sync Folder')}
+      </SectionTitle>
+      <input
+        id='gdrive-root'
+        type='text'
+        placeholder='/'
+        className='input eink-bordered h-11 w-full text-sm focus:outline-hidden'
+        spellCheck='false'
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+      />
+      <Tips>
+        <li>
+          {_(
+            'Readest creates this folder and syncs into {{path}}. Use a new name: folders Readest did not create are invisible to it.',
+            { path: `${normalizeRoot(draft) === '/' ? '' : normalizeRoot(draft)}/Readest` },
+          )}
+        </li>
+      </Tips>
+    </div>
+  );
+};
 
 const disconnectButtonClass = clsx(
   'eink-bordered',
@@ -107,9 +152,17 @@ const GoogleDriveForm: React.FC = () => {
     eventDispatcher.dispatch('toast', { type: 'info', message: _('Disconnected') });
   };
 
+  const folderField = (
+    <DriveFolderField
+      value={stored?.rootPath}
+      onCommit={(rootPath) => persistGDrive({ rootPath })}
+    />
+  );
+
   if (isActive) {
     return (
       <div className='space-y-5'>
+        {folderField}
         <FileSyncForm
           kind='gdrive'
           stored={stored}
@@ -168,6 +221,7 @@ const GoogleDriveForm: React.FC = () => {
 
   return (
     <div className='space-y-5'>
+      {folderField}
       <div className='flex justify-end pt-1'>
         <button
           type='button'

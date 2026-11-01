@@ -51,6 +51,40 @@ runSemanticContract('GoogleDriveProvider', () => {
   };
 });
 
+describe('GoogleDriveProvider — sync folder', () => {
+  test('defaults to the Drive root', () => {
+    expect(makeDrive().provider.rootPath).toBe('/');
+  });
+
+  test('normalises a user-chosen folder', () => {
+    const provider = createGoogleDriveProvider(auth, vi.fn() as unknown as FetchFn, {
+      rootPath: ' Books/Readest Sync/ ',
+    });
+    expect(provider.rootPath).toBe('/Books/Readest Sync');
+  });
+
+  test('creates the chosen folder chain before the Readest tree', async () => {
+    const fetchMock = vi.fn();
+    const provider = createGoogleDriveProvider(auth, fetchMock as unknown as FetchFn, {
+      rootPath: '/Books',
+      sleep: async () => {},
+    });
+    fetchMock
+      .mockResolvedValueOnce(json({ files: [] })) // findChild('Books') — missing
+      .mockResolvedValueOnce(json({ id: 'BID' })) // createFolder('Books')
+      .mockResolvedValueOnce(json({ files: [folder('BID')] })) // re-query winner
+      .mockResolvedValueOnce(json({ files: [] })) // findChild('Readest') under BID
+      .mockResolvedValueOnce(json({ id: 'RID' })) // createFolder('Readest')
+      .mockResolvedValueOnce(json({ files: [folder('RID')] })); // re-query winner
+    await provider.ensureDir([`${provider.rootPath}/Readest`]);
+    const q = (n: number) => new URL(fetchMock.mock.calls[n]![0] as string).searchParams.get('q');
+    expect(q(0)).toContain("name = 'Books'");
+    expect(q(0)).toContain("'root' in parents");
+    expect(q(3)).toContain("name = 'Readest'");
+    expect(q(3)).toContain("'BID' in parents");
+  });
+});
+
 describe('GoogleDriveProvider — Drive transport', () => {
   test('readText resolves the path segment-by-segment then downloads, and caches ids', async () => {
     const h = makeDrive();

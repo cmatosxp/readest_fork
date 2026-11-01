@@ -1,0 +1,136 @@
+# Personal arm64 APK for side-loading. Installs alongside the official app
+# (applicationId com.cmatosxp.readest, label "Readest CM").
+#
+# Optional repository settings (Settings -> Secrets and variables -> Actions):
+#   secrets ANDROID_KEY_BASE64 / ANDROID_KEY_PASSWORD / ANDROID_KEY_ALIAS
+#     A stable signing key, so each new build installs as an update. Without
+#     them the build signs with a throwaway key and every update needs an
+#     uninstall first.
+#   variable GOOGLE_IOS_CLIENT_ID
+#     Your own iOS-type Google OAuth client (bundle id com.cmatosxp.readest).
+#     Without it the official Readest client is used, and if the official app
+#     is also installed Android asks which app finishes the Drive sign-in.
+name: Personal Android build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [personal]
+
+permissions:
+  contents: read
+
+jobs:
+  android-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: setup node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: setup Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: setup Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools'
+
+      - name: install NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: copy pdfjs-dist and simplecc-dist to public directory
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          key: personal-android-aarch64-cargo
+
+      - name: create .env.local for Next.js
+        env:
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+        run: |
+          echo "NEXT_PUBLIC_APP_PLATFORM=tauri" > apps/readest-app/.env.local
+          if [ -n "$GOOGLE_IOS_CLIENT_ID" ]; then
+            echo "NEXT_PUBLIC_GOOGLE_CLIENT_ID=$GOOGLE_IOS_CLIENT_ID" >> apps/readest-app/.env.local
+          fi
+
+      - name: build arm64 apk
+        timeout-minutes: 90
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          cd apps/readest-app/
+          rm -rf src-tauri/gen/android
+          pnpm tauri android init
+          pnpm tauri icon ../../data/icons/readest-book.png
+          git checkout .
+
+          sed -i 's/>Readest</>Readest CM</g' src-tauri/gen/android/app/src/main/res/values/strings.xml
+
+          # Own Google client: its reverse-DNS redirect scheme replaces the
+          # official one wherever the manifests register it.
+          if [ -n "$GOOGLE_IOS_CLIENT_ID" ]; then
+            official=com.googleusercontent.apps.209390247301-ctpmep68ppfa56r1b8tr35e4qi4p60kq
+            mine="com.googleusercontent.apps.${GOOGLE_IOS_CLIENT_ID%.apps.googleusercontent.com}"
+            sed -i "s/$official/$mine/g" src-tauri/tauri.conf.json src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          fi
+
+          pushd src-tauri/gen/android
+          if [ -n "$ANDROID_KEY_BASE64" ]; then
+            base64 -d <<< "$ANDROID_KEY_BASE64" > "$RUNNER_TEMP/keystore.jks"
+            alias="${ANDROID_KEY_ALIAS:-readest}"
+            password="$ANDROID_KEY_PASSWORD"
+          else
+            echo "::warning::No ANDROID_KEY_BASE64 secret: signing with a throwaway key. Updates will need an uninstall first."
+            alias=readest
+            password=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/keystore.jks" -alias "$alias" \
+              -keyalg RSA -keysize 4096 -validity 10000 -storepass "$password" -keypass "$password" \
+              -dname "CN=Readest CM"
+          fi
+          {
+            echo "keyAlias=$alias"
+            echo "password=$password"
+            echo "storeFile=$RUNNER_TEMP/keystore.jks"
+          } > keystore.properties
+          popd
+
+          version=$(node -p "require('./package.json').version")
+          pnpm tauri android build -t aarch64
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
+            "$GITHUB_WORKSPACE/out/ReadestCM_${version}_arm64.apk"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: readest-cm-arm64-apk
+          path: out/*.apk
+          if-no-files-found: error

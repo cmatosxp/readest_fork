@@ -23,7 +23,7 @@ export type FileSyncBackendKind = 'webdav' | 'gdrive' | 's3' | 'onedrive' | 'icl
 /** Minimal settings the registry reads to pick + build backends. */
 export interface FileSyncBackendsSettings {
   webdav?: WebDAVSettings;
-  googleDrive?: { enabled?: boolean };
+  googleDrive?: { enabled?: boolean; rootPath?: string };
   s3?: S3Settings;
   onedrive?: { enabled?: boolean };
   icloud?: { enabled?: boolean };
@@ -61,7 +61,7 @@ const providerCacheKey = (
   }
   if (kind === 'onedrive') return 'onedrive';
   if (kind === 'icloud') return 'icloud';
-  return 'gdrive';
+  return `gdrive:${settings.googleDrive?.rootPath ?? ''}`;
 };
 
 export const resetFileSyncProviderCache = (): void => {
@@ -93,7 +93,7 @@ export const createFileSyncProvider = async (
           ? await buildOneDriveProvider()
           : kind === 'icloud'
             ? await buildICloudProvider()
-            : await buildGoogleDriveProvider();
+            : await buildGoogleDriveProvider(settings.googleDrive?.rootPath);
   if (provider) providerCache.set(kind, { key, provider });
   return provider;
 };

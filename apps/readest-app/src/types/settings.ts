@@ -251,6 +251,8 @@ export interface GoogleDriveSettings {
   enabled: boolean;
   /** Connected account's email (or display name), shown in the settings UI. */
   accountLabel?: string;
+  /** Drive folder the `Readest/` tree lives under; '/' (Drive root) when unset. */
+  rootPath?: string;
   syncProgress?: boolean;
   syncNotes?: boolean;
   syncBooks?: boolean;

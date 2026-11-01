@@ -43,6 +43,7 @@ import {
   FileSyncErrorCode,
   FileSyncProvider,
 } from '@/services/sync/file/provider';
+import { normalizeRoot } from '@/services/sync/file/layout';
 import {
   childrenQuery,
   deleteUrl,
@@ -75,6 +76,8 @@ export type SleepFn = (ms: number) => Promise<void>;
 
 export interface GoogleDriveProviderOptions {
   sleep?: SleepFn;
+  /** Drive folder the `Readest/` tree lives under (created on first sync). */
+  rootPath?: string;
 }
 
 /** Drive's real root, which `drive.file` scope makes our private namespace root. */
@@ -296,7 +299,7 @@ const describeDriveRequest = (url: string, method: string): string => {
 };
 
 class DriveProviderImpl {
-  readonly rootPath = '/';
+  readonly rootPath: string;
 
   /**
    * Memoised absolute-path → Drive file id, scoped to this instance. The engine
@@ -320,7 +323,10 @@ class DriveProviderImpl {
     private readonly auth: DriveAuth,
     private readonly fetchFn: FetchFn,
     private readonly sleep: SleepFn = defaultSleep,
-  ) {}
+    rootPath?: string,
+  ) {
+    this.rootPath = normalizeRoot(rootPath);
+  }
 
   async readText(path: string): Promise<string | null> {
     logDriveOp('readText', path);
@@ -922,7 +928,7 @@ export const createGoogleDriveProvider = (
   fetchFn: FetchFn,
   options: GoogleDriveProviderOptions = {},
 ): FileSyncProvider => {
-  const impl = new DriveProviderImpl(auth, fetchFn, options.sleep);
+  const impl = new DriveProviderImpl(auth, fetchFn, options.sleep, options.rootPath);
   const provider: FileSyncProvider = {
     rootPath: impl.rootPath,
     readText: (path) => wrap(() => impl.readText(path)),
