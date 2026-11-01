@@ -20,12 +20,15 @@ on:
     branches: [personal]
 
 permissions:
-  contents: read
+  contents: write # publish the APK as a release asset
 
 jobs:
   android-arm64:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      # Step `if:` cannot read secrets directly; job-level env it can.
+      HAS_SIGNING_KEY: ${{ secrets.ANDROID_KEY_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -138,8 +141,39 @@ jobs:
           cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
             "$GITHUB_WORKSPACE/out/ReadestCM_${version}_arm64.apk"
 
+      # Fail on a wrong package, ABI or signer; record the facts as an annotation.
+      - name: verify apk
+        env:
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # SHA-256 of the certificate in .github/signing/readest-cm.jks.enc
+          EXPECTED_SIGNER: 3f2168599311e3ad1444b587b5a93d7a8a1899eae5dff9f397e8d686ca782523
+        run: |
+          set -euo pipefail
+          apk=$(ls out/*.apk)
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          pkg=$("$bt/aapt2" dump packagename "$apk")
+          abis=$(unzip -Z1 "$apk" 'lib/*' | cut -d/ -f2 | sort -u | tr '\n' ' ')
+          signer=$("$bt/apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          echo "::notice title=APK::package=$pkg abis=$abis signer=$signer size=$(stat -c %s "$apk")"
+          [ "$pkg" = "com.cmatosxp.readest" ]
+          [ "$abis" = "arm64-v8a " ]
+          if [ -n "$ANDROID_KEY_PASSWORD" ]; then [ "$signer" = "$EXPECTED_SIGNER" ]; fi
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: readest-cm-arm64-apk
           path: out/*.apk
           if-no-files-found: error
+
+      # Only stably signed builds become releases (a direct .apk link for the phone).
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        if: env.HAS_SIGNING_KEY == 'true'
+        run: |
+          set -euo pipefail
+          apk=$(ls out/*.apk)
+          tag="cm-${{ github.run_number }}"
+          gh release create "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Readest CM build ${{ github.run_number }}" \
+            --notes "arm64 APK from $GITHUB_SHA. Installs alongside the official Readest as com.cmatosxp.readest."
