@@ -25,6 +25,7 @@ import {
   type SourceItem,
 } from '@/services/ai/adapters';
 import type { EmbeddingProgress, AISettings, AIMessage } from '@/services/ai/types';
+import { providerHasEmbeddings } from '@/services/ai/constants';
 import type { RetrievedChunk } from '@/services/reedy/retrieval/BookRetriever';
 import { useEnv } from '@/context/EnvContext';
 import { isTauriAppPlatform } from '@/services/environment';
@@ -297,6 +298,7 @@ const AIAssistant = ({ bookKey }: AIAssistantProps) => {
   const useAgentRuntime =
     settings?.aiSettings?.enabled === true &&
     settings?.aiSettings?.reedy?.enabled === true &&
+    providerHasEmbeddings(settings.aiSettings) &&
     reedyRuntime === 'agent' &&
     !!appService &&
     isTauriAppPlatform() &&

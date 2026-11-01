@@ -10,6 +10,10 @@ import {
   fetchOpenRouterModels,
   type OpenRouterModelInfo,
 } from '@/services/ai/providers/OpenRouterProvider';
+import {
+  fetchAnthropicModels,
+  type AnthropicModelInfo,
+} from '@/services/ai/providers/AnthropicProvider';
 import { DEFAULT_AI_SETTINGS, GATEWAY_MODELS, MODEL_PRICING } from '@/services/ai/constants';
 import type { AISettings, AIProviderName } from '@/services/ai/types';
 import { exportReedyMetricsBundle } from '@/services/reedy/instrumentation';
@@ -99,6 +103,14 @@ const AIPanel: React.FC = () => {
   const [openrouterModels, setOpenrouterModels] = useState<OpenRouterModelInfo[]>([]);
   const [openrouterFetchingModels, setOpenrouterFetchingModels] = useState(false);
   const [openrouterModelsError, setOpenrouterModelsError] = useState('');
+
+  // ---- Claude (Anthropic API) state ----
+  const [anthropicKey, setAnthropicKey] = useState(aiSettings.anthropicApiKey ?? '');
+  const [anthropicModel, setAnthropicModel] = useState(
+    aiSettings.anthropicModel ?? DEFAULT_AI_SETTINGS.anthropicModel ?? '',
+  );
+  const [anthropicModels, setAnthropicModels] = useState<AnthropicModelInfo[]>([]);
+  const [anthropicModelsError, setAnthropicModelsError] = useState('');
 
   const savedCustomModel = aiSettings.aiGatewayCustomModel ?? '';
   const savedModel = aiSettings.aiGatewayModel ?? DEFAULT_AI_SETTINGS.aiGatewayModel ?? '';
@@ -203,6 +215,25 @@ const AIPanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, enabled, openrouterKey, openrouterUrl]);
 
+  // ---- Claude: list the models this key can use ----
+  useEffect(() => {
+    if (provider !== 'anthropic' || !enabled || !anthropicKey) {
+      setAnthropicModels([]);
+      return;
+    }
+    const controller = new AbortController();
+    setAnthropicModelsError('');
+    fetchAnthropicModels(anthropicKey, controller.signal)
+      .then(setAnthropicModels)
+      .catch((e: Error) => {
+        if (controller.signal.aborted) return;
+        setAnthropicModels([]);
+        setAnthropicModelsError(e.message || _('Failed to fetch models'));
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, enabled, anthropicKey]);
+
   useEffect(() => {
     isMounted.current = true;
   }, []);
@@ -287,6 +318,23 @@ const AIPanel: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openrouterEmbeddingModel]);
+
+  // ---- Claude save effects ----
+  useEffect(() => {
+    if (!isMounted.current) return;
+    if (anthropicKey !== (aiSettings.anthropicApiKey ?? '')) {
+      saveAiSetting('anthropicApiKey', anthropicKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anthropicKey]);
+
+  useEffect(() => {
+    if (!isMounted.current) return;
+    if (anthropicModel !== (aiSettings.anthropicModel ?? '')) {
+      saveAiSetting('anthropicModel', anthropicModel);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anthropicModel]);
 
   // Get the effective model ID to use (either selected or custom)
   const getEffectiveModelId = useCallback(() => {
@@ -382,6 +430,8 @@ const AIPanel: React.FC = () => {
         openrouterBaseUrl: openrouterUrl,
         openrouterModel,
         openrouterEmbeddingModel,
+        anthropicApiKey: anthropicKey,
+        anthropicModel,
       };
       const aiProvider = getAIProvider(testSettings);
       const isHealthy = await aiProvider.healthCheck();
@@ -441,6 +491,16 @@ const AIPanel: React.FC = () => {
             className='radio'
             checked={provider === 'openrouter'}
             onChange={() => setProvider('openrouter')}
+            disabled={!enabled}
+          />
+        </SettingsRow>
+        <SettingsRow label={_('Claude (Anthropic API)')} asLabel>
+          <input
+            type='radio'
+            name='ai-provider'
+            className='radio'
+            checked={provider === 'anthropic'}
+            onChange={() => setProvider('anthropic')}
             disabled={!enabled}
           />
         </SettingsRow>
@@ -738,6 +798,71 @@ const AIPanel: React.FC = () => {
                 'Optional. Leave blank if your endpoint does not support embeddings — chat will still work but RAG features will be unavailable.',
               )}
             </span>
+          </div>
+        </BoxedList>
+      )}
+
+      {provider === 'anthropic' && (
+        <BoxedList
+          title={_('Claude Configuration')}
+          description={_(
+            'Uses an Anthropic API key, billed per token by Anthropic. A Claude.ai subscription does not work here. Claude has no embeddings, so book search uses keywords.',
+          )}
+          className={disabledSection}
+        >
+          <div className='flex flex-col gap-2 pe-4 py-3'>
+            <div className='flex w-full items-center justify-between'>
+              <SettingLabel>{_('API Key')}</SettingLabel>
+              <a
+                href='https://console.anthropic.com/settings/keys'
+                target='_blank'
+                rel='noopener noreferrer'
+                className={clsx('link text-xs', !enabled && 'pointer-events-none')}
+              >
+                {_('Get Key')}
+              </a>
+            </div>
+            <input
+              type='password'
+              className='input input-sm w-full'
+              value={anthropicKey}
+              onChange={(e) => setAnthropicKey(e.target.value.trim())}
+              placeholder='sk-ant-...'
+              disabled={!enabled}
+              autoComplete='off'
+            />
+          </div>
+          <div className='flex flex-col gap-2 pe-4 py-3'>
+            <SettingLabel>{_('Model')}</SettingLabel>
+            {anthropicModels.length > 0 ? (
+              <select
+                className='select select-sm bg-base-100 text-base-content w-full'
+                value={anthropicModel}
+                onChange={(e) => setAnthropicModel(e.target.value)}
+                disabled={!enabled}
+              >
+                {!anthropicModels.some((m) => m.id === anthropicModel) && (
+                  <option value={anthropicModel}>{anthropicModel}</option>
+                )}
+                {anthropicModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name ? `${m.display_name} (${m.id})` : m.id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type='text'
+                className='input input-sm w-full'
+                value={anthropicModel}
+                onChange={(e) => setAnthropicModel(e.target.value.trim())}
+                placeholder={DEFAULT_AI_SETTINGS.anthropicModel}
+                disabled={!enabled}
+              />
+            )}
+            {anthropicModelsError && (
+              <span className='text-error text-xs'>{anthropicModelsError}</span>
+            )}
           </div>
         </BoxedList>
       )}

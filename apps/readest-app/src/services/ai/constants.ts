@@ -34,8 +34,18 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   openrouterModel: '',
   openrouterEmbeddingModel: '',
 
+  anthropicModel: 'claude-sonnet-5-5',
+
   spoilerProtection: true,
   maxContextChunks: 10,
   indexingMode: 'on-demand',
   reedy: { enabled: false },
 };
+
+/**
+ * Whether the configured provider can embed text. Claude has no embeddings
+ * API: its books index for keyword (BM25) search only, and the vector-only
+ * Reedy backend stays off.
+ */
+export const providerHasEmbeddings = (settings: Pick<AISettings, 'provider'>): boolean =>
+  settings.provider !== 'anthropic';

@@ -1,6 +1,6 @@
 import type { LanguageModel, EmbeddingModel } from 'ai';
 
-export type AIProviderName = 'ollama' | 'ai-gateway' | 'openrouter';
+export type AIProviderName = 'ollama' | 'ai-gateway' | 'openrouter' | 'anthropic';
 
 export interface AIProvider {
   id: AIProviderName;
@@ -33,6 +33,11 @@ export interface AISettings {
   openrouterBaseUrl?: string;
   openrouterModel?: string;
   openrouterEmbeddingModel?: string;
+
+  // Claude through the Anthropic API (console.anthropic.com key, billed per
+  // token). No embeddings API, so book search is keyword-only (BM25).
+  anthropicApiKey?: string;
+  anthropicModel?: string;
 
   spoilerProtection: boolean;
   maxContextChunks: number;

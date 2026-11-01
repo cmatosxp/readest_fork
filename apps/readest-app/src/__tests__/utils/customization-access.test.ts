@@ -108,3 +108,17 @@ describe('isCustomTranslatorAllowed', () => {
     expect(isCustomTranslatorAllowed(null)).toBe(true);
   });
 });
+
+// Personal build: API voices use the reader's own keys, so they are never
+// plan-gated (custom translators keep the upstream gate).
+describe('isCustomTTSAllowed (personal build)', () => {
+  it('allows a free-plan reader', async () => {
+    const { isCustomTTSAllowed } = await import('@/utils/access');
+    expect(isCustomTTSAllowed(mockToken({ plan: 'free' }))).toBe(true);
+  });
+
+  it('allows a signed-out reader', async () => {
+    const { isCustomTTSAllowed } = await import('@/utils/access');
+    expect(isCustomTTSAllowed(null)).toBe(true);
+  });
+});

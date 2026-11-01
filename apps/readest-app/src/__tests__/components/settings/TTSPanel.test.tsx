@@ -136,20 +136,22 @@ describe('TTSPanel custom TTS services premium gate', () => {
 
   afterEach(cleanup);
 
-  it('sends a signed-out reader to sign in', () => {
+  // Personal build: API voices are never plan-gated.
+  it('opens the services page for a signed-out reader', () => {
     render(<TTSPanel bookKey='book-1' onRegisterReset={vi.fn()} />);
-    expect(getCustomServicesRow().textContent).toContain('Premium');
+    expect(getCustomServicesRow().textContent).not.toContain('Premium');
     fireEvent.click(getCustomServicesRow());
-    expect(state.push).toHaveBeenCalledWith(expect.stringMatching(/^\/auth\?redirect=/));
+    expect(state.push).not.toHaveBeenCalled();
+    expect(screen.getByText('Add TTS Service')).toBeTruthy();
   });
 
-  it('sends a free user to the plans page', () => {
+  it('opens the services page for a free user', () => {
     state.token = sessionToken({ plan: 'free' });
     state.user = { id: 'u' };
     render(<TTSPanel bookKey='book-1' onRegisterReset={vi.fn()} />);
     fireEvent.click(getCustomServicesRow());
-    expect(state.push).toHaveBeenCalledWith(expect.stringMatching(/^\/user\?redirect=/));
-    expect(screen.queryByText('Add TTS Service')).toBeNull();
+    expect(state.push).not.toHaveBeenCalled();
+    expect(screen.getByText('Add TTS Service')).toBeTruthy();
   });
 
   it('opens the services page for Full Customization', () => {

@@ -4,7 +4,15 @@ import { chunkSection, extractTextFromDocument } from './utils/chunker';
 import { withRetryAndTimeout, AI_TIMEOUTS, AI_RETRY_CONFIGS } from './utils/retry';
 import { getAIProvider } from './providers';
 import { aiLogger } from './logger';
-import type { AISettings, TextChunk, ScoredChunk, EmbeddingProgress, BookIndexMeta } from './types';
+import { providerHasEmbeddings } from './constants';
+import type {
+  AIProvider,
+  AISettings,
+  TextChunk,
+  ScoredChunk,
+  EmbeddingProgress,
+  BookIndexMeta,
+} from './types';
 
 interface SectionItem {
   id: string;
@@ -54,6 +62,32 @@ function getChapterTitle(toc: TOCItem[] | undefined, sectionIndex: number): stri
     if (toc[i]!.id <= sectionIndex) return toc[i]!.label;
   }
   return toc[0]?.label || `Section ${sectionIndex + 1}`;
+}
+
+async function embedChunks(
+  chunks: TextChunk[],
+  provider: AIProvider,
+  onProgress?: (progress: EmbeddingProgress) => void,
+): Promise<void> {
+  try {
+    const { embeddings } = await withRetryAndTimeout(
+      () =>
+        embedMany({
+          model: provider.getEmbeddingModel(),
+          values: chunks.map((c) => c.text),
+        }),
+      AI_TIMEOUTS.EMBEDDING_BATCH,
+      AI_RETRY_CONFIGS.EMBEDDING,
+    );
+    for (let i = 0; i < chunks.length; i++) {
+      chunks[i]!.embedding = embeddings[i];
+    }
+    onProgress?.({ current: chunks.length, total: chunks.length, phase: 'embedding' });
+    aiLogger.embedding.complete(embeddings.length, chunks.length, embeddings[0]?.length || 0);
+  } catch (e) {
+    aiLogger.embedding.error('batch', (e as Error).message);
+    throw e;
+  }
 }
 
 export async function indexBook(
@@ -116,35 +150,17 @@ export async function indexBook(
       return;
     }
 
-    onProgress?.({ current: 0, total: allChunks.length, phase: 'embedding' });
-    const embeddingModelName =
-      settings.provider === 'ollama'
+    const embeddingModelName = !providerHasEmbeddings(settings)
+      ? 'none (keyword search)'
+      : settings.provider === 'ollama'
         ? settings.ollamaEmbeddingModel
         : settings.provider === 'openrouter'
           ? settings.openrouterEmbeddingModel || 'text-embedding-3-small'
           : settings.aiGatewayEmbeddingModel || 'text-embedding-3-small';
-    aiLogger.embedding.start(embeddingModelName, allChunks.length);
-
-    const texts = allChunks.map((c) => c.text);
-    try {
-      const { embeddings } = await withRetryAndTimeout(
-        () =>
-          embedMany({
-            model: provider.getEmbeddingModel(),
-            values: texts,
-          }),
-        AI_TIMEOUTS.EMBEDDING_BATCH,
-        AI_RETRY_CONFIGS.EMBEDDING,
-      );
-
-      for (let i = 0; i < allChunks.length; i++) {
-        allChunks[i]!.embedding = embeddings[i];
-      }
-      onProgress?.({ current: allChunks.length, total: allChunks.length, phase: 'embedding' });
-      aiLogger.embedding.complete(embeddings.length, allChunks.length, embeddings[0]?.length || 0);
-    } catch (e) {
-      aiLogger.embedding.error('batch', (e as Error).message);
-      throw e;
+    if (providerHasEmbeddings(settings)) {
+      onProgress?.({ current: 0, total: allChunks.length, phase: 'embedding' });
+      aiLogger.embedding.start(embeddingModelName, allChunks.length);
+      await embedChunks(allChunks, provider, onProgress);
     }
 
     onProgress?.({ current: 0, total: 2, phase: 'indexing' });
@@ -186,20 +202,22 @@ export async function hybridSearch(
   const provider = getAIProvider(settings);
   let queryEmbedding: number[] | null = null;
 
-  try {
-    // use AI SDK embed with provider's embedding model
-    const { embedding } = await withRetryAndTimeout(
-      () =>
-        embed({
-          model: provider.getEmbeddingModel(),
-          value: query,
-        }),
-      AI_TIMEOUTS.EMBEDDING_SINGLE,
-      AI_RETRY_CONFIGS.EMBEDDING,
-    );
-    queryEmbedding = embedding;
-  } catch {
-    // bm25 only fallback
+  if (providerHasEmbeddings(settings)) {
+    try {
+      // use AI SDK embed with provider's embedding model
+      const { embedding } = await withRetryAndTimeout(
+        () =>
+          embed({
+            model: provider.getEmbeddingModel(),
+            value: query,
+          }),
+        AI_TIMEOUTS.EMBEDDING_SINGLE,
+        AI_RETRY_CONFIGS.EMBEDDING,
+      );
+      queryEmbedding = embedding;
+    } catch {
+      // bm25 only fallback
+    }
   }
 
   const results = await aiStore.hybridSearch(bookHash, queryEmbedding, query, topK, maxPage);

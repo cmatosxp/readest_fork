@@ -33,6 +33,12 @@ vi.mock('@ai-sdk/openai-compatible', () => ({
   })),
 }));
 
+// mock @ai-sdk/anthropic so the Claude provider is built without network.
+const anthropicModelFn = vi.hoisted(() => vi.fn());
+vi.mock('@ai-sdk/anthropic', () => ({
+  createAnthropic: vi.fn(() => anthropicModelFn),
+}));
+
 import { OllamaProvider } from '@/services/ai/providers/OllamaProvider';
 import { AIGatewayProvider } from '@/services/ai/providers/AIGatewayProvider';
 import { OpenRouterProvider } from '@/services/ai/providers/OpenRouterProvider';
@@ -307,5 +313,59 @@ describe('getAIProvider', () => {
     } as AISettings;
 
     expect(() => getAIProvider(settings)).toThrow('Unknown provider');
+  });
+});
+
+describe('AnthropicProvider (Claude via API key)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const claude = (extra: Partial<AISettings> = {}): AISettings => ({
+    ...DEFAULT_AI_SETTINGS,
+    enabled: true,
+    provider: 'anthropic',
+    anthropicApiKey: 'sk-ant-test',
+    ...extra,
+  });
+
+  test('getAIProvider returns the Claude provider', () => {
+    const provider = getAIProvider(claude());
+    expect(provider.id).toBe('anthropic');
+    expect(provider.requiresAuth).toBe(true);
+  });
+
+  test('getAIProvider throws without an API key', () => {
+    expect(() => getAIProvider(claude({ anthropicApiKey: '' }))).toThrow(
+      'API key required for Claude',
+    );
+  });
+
+  test('uses the chosen model, else the default', () => {
+    const provider = getAIProvider(claude({ anthropicModel: 'claude-haiku-5-5' }));
+    provider.getModel();
+    expect(anthropicModelFn).toHaveBeenLastCalledWith('claude-haiku-5-5');
+    getAIProvider(claude()).getModel();
+    expect(anthropicModelFn).toHaveBeenLastCalledWith(DEFAULT_AI_SETTINGS.anthropicModel);
+  });
+
+  test('has no embedding model', () => {
+    expect(() => getAIProvider(claude()).getEmbeddingModel()).toThrow();
+  });
+
+  test('healthCheck lists models with the key (no token spend)', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    expect(await getAIProvider(claude()).healthCheck()).toBe(true);
+    const [url, init] = mockFetch.mock.calls[0]!;
+    expect(url).toBe('https://api.anthropic.com/v1/models');
+    expect((init as RequestInit).headers).toMatchObject({
+      'x-api-key': 'sk-ant-test',
+      'anthropic-version': '2023-06-01',
+    });
+  });
+
+  test('healthCheck is false on a rejected key', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+    expect(await getAIProvider(claude()).healthCheck()).toBe(false);
   });
 });

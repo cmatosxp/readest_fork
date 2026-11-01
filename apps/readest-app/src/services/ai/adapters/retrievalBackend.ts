@@ -1,6 +1,7 @@
 import type { Tool } from 'ai';
 import type { BookDoc } from '@/libs/document';
 import type { AISettings, EmbeddingProgress, ScoredChunk } from '../types';
+import { providerHasEmbeddings } from '../constants';
 import type { ReedySourceStore } from './reedySourceStore';
 
 export type RetrievalBackendKind = 'legacy-idb' | 'reedy';
@@ -65,7 +66,12 @@ export function selectBackend(args: {
   legacy: RetrievalBackend;
   reedy: RetrievalBackend | null;
 }): RetrievalBackend {
-  if (args.settings.reedy?.enabled && args.isTauri && args.reedy) {
+  if (
+    args.settings.reedy?.enabled &&
+    providerHasEmbeddings(args.settings) &&
+    args.isTauri &&
+    args.reedy
+  ) {
     return args.reedy;
   }
   return args.legacy;
