@@ -2,9 +2,11 @@
 # (applicationId com.cmatosxp.readest, label "Readest CM").
 #
 # Optional repository settings (Settings -> Secrets and variables -> Actions):
-#   secrets ANDROID_KEY_BASE64 / ANDROID_KEY_PASSWORD / ANDROID_KEY_ALIAS
-#     A stable signing key, so each new build installs as an update. Without
-#     them the build signs with a throwaway key and every update needs an
+#   secret ANDROID_KEY_PASSWORD
+#     Decrypts the committed .github/signing/readest-cm.jks.enc, a stable
+#     signing key, so each new build installs as an update. (Or supply your own
+#     key as ANDROID_KEY_BASE64 + ANDROID_KEY_PASSWORD + ANDROID_KEY_ALIAS.)
+#     Without it the build signs with a throwaway key and every update needs an
 #     uninstall first.
 #   variable GOOGLE_IOS_CLIENT_ID
 #     Your own iOS-type Google OAuth client (bundle id com.cmatosxp.readest).
@@ -104,9 +106,16 @@ jobs:
           fi
 
           pushd src-tauri/gen/android
+          encrypted="$GITHUB_WORKSPACE/.github/signing/readest-cm.jks.enc"
           if [ -n "$ANDROID_KEY_BASE64" ]; then
             base64 -d <<< "$ANDROID_KEY_BASE64" > "$RUNNER_TEMP/keystore.jks"
             alias="${ANDROID_KEY_ALIAS:-readest}"
+            password="$ANDROID_KEY_PASSWORD"
+          elif [ -n "$ANDROID_KEY_PASSWORD" ] && [ -f "$encrypted" ]; then
+            # The committed keystore is AES-256 encrypted with the same password.
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in "$encrypted" \
+              -out "$RUNNER_TEMP/keystore.jks" -pass env:ANDROID_KEY_PASSWORD
+            alias=readest
             password="$ANDROID_KEY_PASSWORD"
           else
             echo "::warning::No ANDROID_KEY_BASE64 secret: signing with a throwaway key. Updates will need an uninstall first."
