@@ -94,9 +94,12 @@ jobs:
           set -euo pipefail
           cd apps/readest-app/
           rm -rf src-tauri/gen/android
-          pnpm tauri android init
+          pnpm tauri android init --config '{"productName":"Westward Reader"}'
           pnpm tauri icon ../../data/icons/readest-book.png
           git checkout .
+
+          # Generated labels are quoted Android string resources.
+          grep -Fq '>"Westward Reader"<' src-tauri/gen/android/app/src/main/res/values/strings.xml
 
           # Own Google client: its reverse-DNS redirect scheme replaces the
           # official one wherever the manifests register it.
@@ -134,7 +137,7 @@ jobs:
           popd
 
           version=$(node -p "require('./package.json').version")
-          # Tauri regenerates Android labels from productName during the build.
+          # Use the same product name for project generation and compilation.
           pnpm tauri android build -t aarch64 --config '{"productName":"Westward Reader"}'
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
