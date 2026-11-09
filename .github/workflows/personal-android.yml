@@ -1,5 +1,5 @@
 # Personal arm64 APK for side-loading. Installs alongside the official app
-# (applicationId com.cmatosxp.readest, label "Readest CM").
+# (applicationId com.cmatosxp.readest, label "Westward Reader").
 #
 # Optional repository settings (Settings -> Secrets and variables -> Actions):
 #   secret ANDROID_KEY_PASSWORD
@@ -98,7 +98,7 @@ jobs:
           pnpm tauri icon ../../data/icons/readest-book.png
           git checkout .
 
-          sed -i 's/>Readest</>Readest CM</g' src-tauri/gen/android/app/src/main/res/values/strings.xml
+          sed -i 's/>Readest</>Westward Reader</g' src-tauri/gen/android/app/src/main/res/values/strings.xml
 
           # Own Google client: its reverse-DNS redirect scheme replaces the
           # official one wherever the manifests register it.
@@ -139,7 +139,7 @@ jobs:
           pnpm tauri android build -t aarch64
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
-            "$GITHUB_WORKSPACE/out/ReadestCM_${version}_arm64.apk"
+            "$GITHUB_WORKSPACE/out/WestwardReader_${version}_arm64.apk"
 
       # Fail on a wrong package, ABI or signer; record the facts as an annotation.
       - name: verify apk
@@ -152,16 +152,18 @@ jobs:
           apk=$(ls out/*.apk)
           bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           pkg=$("$bt/aapt2" dump packagename "$apk")
+          label=$("$bt/aapt2" dump badging "$apk" | sed -n "s/^application-label:'\(.*\)'$/\1/p")
           abis=$(unzip -Z1 "$apk" 'lib/*' | cut -d/ -f2 | sort -u | tr '\n' ' ')
           signer=$("$bt/apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
-          echo "::notice title=APK::package=$pkg abis=$abis signer=$signer size=$(stat -c %s "$apk")"
+          echo "::notice title=APK::label=$label package=$pkg abis=$abis signer=$signer size=$(stat -c %s "$apk")"
           [ "$pkg" = "com.cmatosxp.readest" ]
+          [ "$label" = "Westward Reader" ]
           [ "$abis" = "arm64-v8a " ]
           if [ -n "$ANDROID_KEY_PASSWORD" ]; then [ "$signer" = "$EXPECTED_SIGNER" ]; fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: readest-cm-arm64-apk
+          name: westward-reader-arm64-apk
           path: out/*.apk
           if-no-files-found: error
 
@@ -173,7 +175,7 @@ jobs:
         run: |
           set -euo pipefail
           apk=$(ls out/*.apk)
-          tag="cm-${{ github.run_number }}"
+          tag="westward-${{ github.run_number }}"
           gh release create "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Readest CM build ${{ github.run_number }}" \
-            --notes "arm64 APK from $GITHUB_SHA. Installs alongside the official Readest as com.cmatosxp.readest."
+            --title "Westward Reader build ${{ github.run_number }}" \
+            --notes "Westward Reader (formerly Readest CM), arm64 APK from $GITHUB_SHA. Uses the same package and signing key to update existing Readest CM installations. Installs alongside official Readest as com.cmatosxp.readest."
