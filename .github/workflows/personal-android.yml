@@ -98,8 +98,6 @@ jobs:
           pnpm tauri icon ../../data/icons/readest-book.png
           git checkout .
 
-          sed -i 's/>Readest</>Westward Reader</g' src-tauri/gen/android/app/src/main/res/values/strings.xml
-
           # Own Google client: its reverse-DNS redirect scheme replaces the
           # official one wherever the manifests register it.
           if [ -n "$GOOGLE_IOS_CLIENT_ID" ]; then
@@ -136,7 +134,8 @@ jobs:
           popd
 
           version=$(node -p "require('./package.json').version")
-          pnpm tauri android build -t aarch64
+          # Tauri regenerates Android labels from productName during the build.
+          pnpm tauri android build -t aarch64 --config '{"productName":"Westward Reader"}'
           mkdir -p "$GITHUB_WORKSPACE/out"
           cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
             "$GITHUB_WORKSPACE/out/WestwardReader_${version}_arm64.apk"
